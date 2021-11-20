@@ -23,26 +23,27 @@ def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray, 
                 mass2tof(masses, fov['mass_offset'], fov['mass_gain'], time_res)
             ).astype(np.uint16)
 
-def write_out(img_data, intensity_data, intens_width_data, out_dir, fov_name, targets):
-    final_out = os.path.join(out_dir, fov_name)
-    int_out = os.path.join(final_out, 'intensities')
-    int_width_out = os.path.join(final_out, 'intensity_times_width')
-    os.makedirs(final_out)
-    if not os.path.exists(int_out):
-        os.makedirs(int_out)
-        os.makedirs(int_width_out)
-
-    for i, target in enumerate(targets):
-        io.imsave(os.path.join(final_out, f'{target}.tiff'), img_data[:, :, i].astype(np.uint16), plugin='tifffile', check_contrast=False)
-        if np.max(intensity_data) != 0:
-            io.imsave(os.path.join(int_out, f'{target}_intensity.tiff'), intensity_data[:, :, i], plugin='tifffile', check_contrast=False)
-            io.imsave(os.path.join(int_width_out, f'{target}_int_width.tiff'), intens_width_data[:, :, i], plugin='tifffile', check_contrast=False)
+def write_out(img_data, out_dir, fov_name, targets):
+    out_dirs = [
+        os.path.join(out_dir, fov_name),
+        os.path.join(out_dir, fov_name, 'intensities'),
+        os.path.join(out_dir, fov_name, 'intensity_times_width')
+    ]
+    suffixes = [
+        '',
+        '_intensity',
+        '_int_width'
+    ]
+    for i, out_dir, suffix in enumerate(zip(out_dirs, suffixes)):
+        if not os.path.exitst(out_dir):
+            os.makedirs(out_dir)
+        for j, target in enumerate(targets):
+            io.imsave(os.path.join(out_dir, f'{target}{suffix}.tiff'), img_data[i, :, :, j], plugin='tifffile', check_contrast=False)
 
 def extract_bin_files(data_dir: str, out_dir: str,
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6,
-                      timeout=100):
+                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6):
     
     # TODO: intensities
 
@@ -95,7 +96,6 @@ def extract_bin_files(data_dir: str, out_dir: str,
 
     # start download of bin files to new tmp dir
     bin_file_paths = [os.path.join(data_dir, fov['bin']) for fov in fov_files.values()]
-    bin_file_sizes = [os.path.getsize(bfp) for bfp in bin_file_paths]
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
@@ -103,15 +103,11 @@ def extract_bin_files(data_dir: str, out_dir: str,
         for i, (fov, bf) in enumerate(bin_files):
             # call extraction cython here
             img_data = _extract_bin.c_extract_bin(
-                bytes(bf, 'utf-8'), bin_file_sizes[i], fov['lower_tof_range'],
-                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8),
-                timeout=timeout
-            )
+                bytes(bf, 'utf-8'), fov['lower_tof_range'],
+                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
             pool.apply_async(
                 write_out, 
-                (img_data[0, :, :, :], img_data[1, :, :, :], img_data[2, :, :, :], out_dir,
-                 fov['bin'][:-4], fov['targets']
-                )
+                (img_data, out_dir, fov['bin'][:-4], fov['targets'])
             )
         pool.close()
         pool.join()
@@ -149,15 +145,14 @@ def extract_no_sum(data_dir, out_dir, fov, channel, mass_range=(-0.3, 0.0), time
 
     # start download of bin files to new tmp dir
     bin_file_paths = os.path.join(data_dir, fov['bin'])
-    bin_file_sizes = os.path.getsize(bin_file_paths)
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
     with mp.Pool() as pool:
         # call extraction cython here
-        discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), bin_file_sizes,
+        discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), 
                                                    fov['lower_tof_range'],
-                                                   fov['upper_tof_range'], 100
+                                                   fov['upper_tof_range'] 
         )
         pool.close()
         pool.join()
