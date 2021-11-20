@@ -3,8 +3,7 @@ from cython cimport cdivision, boundscheck, wraparound
 
 from libc.stdlib cimport malloc, free, realloc
 from libc.string cimport memcpy, memset
-from libc.stdio cimport fopen, fclose, FILE, EOF, fseek, SEEK_END, SEEK_SET, SEEK_CUR, fread, ftell, clearerr
-from posix.unistd cimport usleep
+from libc.stdio cimport fopen, fclose, FILE, EOF, fseek, SEEK_SET, SEEK_CUR, fread
 
 import numpy as np
 cimport numpy as np
