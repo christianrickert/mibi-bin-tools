@@ -106,7 +106,6 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
 
     # open file
     cdef FILE* fp
-    cdef int timer = 0
     fp = fopen(filename, "rb")
 
     # note, if cython has packed structs, this would be easier
@@ -163,11 +162,12 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
 
     return np.asarray(img_data).reshape((3, num_x, num_y, low_range.shape[0]))
 
+
 @boundscheck(False) # Deactivate bounds checking
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
-cdef _extract_no_sum(const char* filename, DTYPE_t low_range,
-                     DTYPE_t high_range):
+cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
+                                   DTYPE_t high_range):
     """ Creates histogram of observed peak widths within specified integration range
 
     Args:
