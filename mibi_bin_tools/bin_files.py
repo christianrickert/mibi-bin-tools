@@ -158,3 +158,45 @@ def extract_no_sum(data_dir, out_dir, fov, channel, mass_range=(-0.3, 0.0), time
         pool.join()
 
     return discovered
+
+
+def median_height_vs_mean_pp(data_dir, fov, channel, mass_range=(-0.3, 0.0),
+                             time_res: float=500e-6):
+    bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
+    json_files = io_utils.list_files(data_dir, substrs=['.json'])
+
+    fov_names = io_utils.extract_delimited_names(bin_files, delimiter='.')
+
+    fov_files = {
+        fov_name: {
+            'bin': fov_name + '.bin',
+            'json': fov_name + '.json',
+        }
+        for fov_name in fov_names
+        if fov_name + '.json' in json_files
+    }
+
+    fov = fov_files[fov]
+    with open(os.path.join(data_dir, fov['json']), 'rb') as f:
+        data = json.load(f)
+
+    fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
+    fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
+
+    rows = data['fov']['panel']['conjugates']
+    fov['masses'], fov['targets'] = zip(*[(el['mass'], el['target']) for el in rows])
+    t_index = fov['targets'].index(channel)
+    fov['masses'] = fov['masses'][t_index]
+    fov['targets'] = fov['targets'][t_index]
+
+    masses_arr = np.array(fov['masses'])
+    _set_tof_ranges(fov, masses_arr + mass_range[1], masses_arr + mass_range[0], time_res)
+
+    local_bin_file = os.path.join(data_dir, fov['bin'])
+
+    median_height, mean_pp = \
+        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
+                                                      fov['lower_tof_range'],
+                                                      fov['upper_tof_range'])
+
+    return median_height, mean_pp
