@@ -16,7 +16,7 @@ ctypedef np.uint8_t SMALL_t
 @boundscheck(False) # Deactivate bounds checking
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
-cdef inline int _minimum_larger_value_in_sorted(const DTYPE_t[:] low_range, DTYPE_t val):
+cdef inline int _minimum_larger_value_in_sorted(const DTYPE_t[:] low_range, DTYPE_t val) nogil:
     """ minimal bianry search impl
     """
     cdef int start, end, ans, mid
@@ -42,7 +42,7 @@ cdef inline int _minimum_larger_value_in_sorted(const DTYPE_t[:] low_range, DTYP
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
 cdef inline void _check_buffer_refill(FILE* fp, char* file_buffer, MAXINDEX_t *buffer_idx,
-                                      MAXINDEX_t read_size, MAXINDEX_t BUFFER_SIZE): 
+                                      MAXINDEX_t read_size, MAXINDEX_t BUFFER_SIZE) nogil:
     """ Makes sure requested data is loaded into buffer
     
     Otherwise, the buffer is refilled and the offest pointer (buffer_idx) is updated.
@@ -75,7 +75,7 @@ cdef inline void _check_buffer_refill(FILE* fp, char* file_buffer, MAXINDEX_t *b
     return
 
 
-@boundscheck(False) # Deactivate bounds checking
+#@boundscheck(False) # Deactivate bounds checking
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
 cdef INT_t[:, :, :, :] _extract_bin(const char* filename, 
@@ -129,6 +129,7 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
             format='I'
         )
     cdef INT_t[:, :, :] img_data_view = img_data
+    img_data_view[:, :, :] = 0
 
     fseek(fp, data_start, SEEK_SET)
     fread(file_buffer, sizeof(char), BUFFER_SIZE, fp)
@@ -161,7 +162,7 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
     fclose(fp)
     free(file_buffer)
 
-    return np.asarray(img_data).reshape((3, num_x, num_y, low_range.shape[0]))
+    return np.asarray(img_data, dtype=np.uint32).reshape((3, num_x, num_y, low_range.shape[0]))
 
 @boundscheck(False) # Deactivate bounds checking
 @wraparound(False)  # Deactivate negative indexing
@@ -279,31 +280,32 @@ cdef void _extract_pulse_height_and_positive_pixel(const char* filename, DTYPE_t
     fseek(fp, data_start, SEEK_SET)
     fread(file_buffer, sizeof(char), BUFFER_SIZE, fp)
     pp_count = 0
-    for pix in range(<MAXINDEX_t>(num_x) * <MAXINDEX_t>(num_y)):
-        pulse_count = 0
-        #if pix % num_x == 0:
-        #    print('\rpix done: ' + str(100 * pix / num_x / num_y) + '%...', end='')
-        for trig in range(num_trig):
-            _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x8 * sizeof(char), BUFFER_SIZE)
-            memcpy(&num_pulses, file_buffer + buffer_idx + 0x6, sizeof(time))
-            buffer_idx += 0x8
-            for pulse in range(num_pulses):
-                _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x5 * sizeof(char), BUFFER_SIZE)
-                memcpy(&time, file_buffer + buffer_idx, sizeof(time))
-                memcpy(&width, file_buffer + buffer_idx + 0x2, sizeof(width))
-                memcpy(&intensity, file_buffer + buffer_idx + 0x3, sizeof(intensity))
-                buffer_idx += 0x5
-                if time <= high_range and time >= low_range:
-                    pulse_heights[pulse_height_index] = intensity
-                    pulse_height_index += 1
-                    pulse_count += 1
-        if pulse_count > 0:
-            mean_pp[0] = (mean_pp[0] * pp_count + pulse_count) / (pp_count+ 1)
-            pp_count += 1
+    with nogil:
+        for pix in range(<MAXINDEX_t>(num_x) * <MAXINDEX_t>(num_y)): 
+            pulse_count = 0
+            #if pix % num_x == 0:
+            #    print('\rpix done: ' + str(100 * pix / num_x / num_y) + '%...', end='')
+            for trig in range(num_trig):
+                _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x8 * sizeof(char), BUFFER_SIZE)
+                memcpy(&num_pulses, file_buffer + buffer_idx + 0x6, sizeof(time))
+                buffer_idx += 0x8
+                for pulse in range(num_pulses):
+                    _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x5 * sizeof(char), BUFFER_SIZE)
+                    memcpy(&time, file_buffer + buffer_idx, sizeof(time))
+                    memcpy(&width, file_buffer + buffer_idx + 0x2, sizeof(width))
+                    memcpy(&intensity, file_buffer + buffer_idx + 0x3, sizeof(intensity))
+                    buffer_idx += 0x5
+                    if time <= high_range and time >= low_range:
+                        pulse_heights[pulse_height_index] = intensity
+                        pulse_height_index += 1
+                        pulse_count += 1
+            if pulse_count > 0:
+                mean_pp[0] = (mean_pp[0] * pp_count + pulse_count) / (pp_count+ 1)
+                pp_count += 1
 
-    qsort(pulse_heights, num_x * num_y * num_trig * 3 * sizeof(DTYPE_t), sizeof(DTYPE_t), _comp)
+        qsort(pulse_heights, pulse_height_index, sizeof(DTYPE_t), _comp)
 
-    median_pulse_height[0] = pulse_heights[num_x * num_y * num_trig * 3 / 2]
+        median_pulse_height[0] = pulse_heights[pulse_height_index // 2]
 
     fclose(fp)
     free(file_buffer)
