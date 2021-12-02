@@ -34,16 +34,17 @@ def write_out(img_data, out_dir, fov_name, targets):
         '_intensity',
         '_int_width'
     ]
-    for i, out_dir, suffix in enumerate(zip(out_dirs, suffixes)):
-        if not os.path.exitst(out_dir):
-            os.makedirs(out_dir)
+    for i, (out_dir_i, suffix) in enumerate(zip(out_dirs, suffixes)):
+        if not os.path.exists(out_dir_i):
+            os.makedirs(out_dir_i)
         for j, target in enumerate(targets):
-            io.imsave(os.path.join(out_dir, f'{target}{suffix}.tiff'), img_data[i, :, :, j], plugin='tifffile', check_contrast=False)
+            io.imsave(os.path.join(out_dir_i, f'{target}{suffix}.tiff'), img_data[i, :, :, j], plugin='tifffile', check_contrast=False)
 
 def extract_bin_files(data_dir: str, out_dir: str,
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6):
+                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6,
+                      write_parallel: bool = True):
     
     # TODO: intensities
 
@@ -99,18 +100,27 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
-    with mp.Pool() as pool:
+
+    if write_parallel:
+        with mp.Pool() as pool:
+            for i, (fov, bf) in enumerate(bin_files):
+                # call extraction cython here
+                img_data = _extract_bin.c_extract_bin(
+                    bytes(bf, 'utf-8'), fov['lower_tof_range'],
+                    fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
+                pool.apply_async(
+                    write_out, 
+                    (img_data, out_dir, fov['bin'][:-4], fov['targets'])
+                )
+            pool.close()
+            pool.join()
+    else:
         for i, (fov, bf) in enumerate(bin_files):
-            # call extraction cython here
             img_data = _extract_bin.c_extract_bin(
                 bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
-            pool.apply_async(
-                write_out, 
-                (img_data, out_dir, fov['bin'][:-4], fov['targets'])
+                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
             )
-        pool.close()
-        pool.join()
+            write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
 def extract_no_sum(data_dir, out_dir, fov, channel, mass_range=(-0.3, 0.0), time_res: float=500e-6):
     bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
@@ -158,3 +168,48 @@ def extract_no_sum(data_dir, out_dir, fov, channel, mass_range=(-0.3, 0.0), time
         pool.join()
 
     return discovered
+
+
+def median_height_vs_mean_pp(data_dir, fov, channel, panel=(-0.3, 0.0),
+                             time_res: float=500e-6):
+    bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
+    json_files = io_utils.list_files(data_dir, substrs=['.json'])
+
+    fov_names = io_utils.extract_delimited_names(bin_files, delimiter='.')
+
+    fov_files = {
+        fov_name: {
+            'bin': fov_name + '.bin',
+            'json': fov_name + '.json',
+        }
+        for fov_name in fov_names
+        if fov_name + '.json' in json_files
+    }
+
+    fov = fov_files[fov]
+    with open(os.path.join(data_dir, fov['json']), 'rb') as f:
+        data = json.load(f)
+
+    fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
+    fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
+    if type(panel) is tuple:
+        rows = data['fov']['panel']['conjugates']
+        fov['masses'], fov['targets'] = zip(*[(el['mass'], el['target']) for el in rows])
+
+        masses_arr = np.array(fov['masses'])
+        _set_tof_ranges(fov, masses_arr + panel[1], masses_arr + panel[0], time_res)
+    else:
+        fov['masses'] = list(panel['Mass'])
+        fov['targets'] = list(panel['Target'])
+
+        _set_tof_ranges(fov, panel['Stop'].values, panel['Start'].values, time_res)
+    t_index = fov['targets'].index(channel)
+
+    local_bin_file = os.path.join(data_dir, fov['bin'])
+
+    median_height, mean_pp = \
+        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
+                                                      fov['lower_tof_range'][t_index],
+                                                      fov['upper_tof_range'][t_index])
+
+    return median_height, mean_pp
