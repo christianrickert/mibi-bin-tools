@@ -34,11 +34,21 @@ def write_out(img_data, out_dir, fov_name, targets):
         '_intensity',
         '_int_width'
     ]
-    for i, (out_dir_i, suffix) in enumerate(zip(out_dirs, suffixes)):
+    save_dtypes = [
+        np.uint16,
+        np.uint32,
+        np.uint32,
+    ]
+    for i, (out_dir_i, suffix, save_dtype) in enumerate(zip(out_dirs, suffixes, save_dtypes)):
         if not os.path.exists(out_dir_i):
             os.makedirs(out_dir_i)
         for j, target in enumerate(targets):
-            io.imsave(os.path.join(out_dir_i, f'{target}{suffix}.tiff'), img_data[i, :, :, j], plugin='tifffile', check_contrast=False)
+            io.imsave(
+                os.path.join(out_dir_i, f'{target}{suffix}.tiff'),
+                img_data[i, :, :, j].astype(save_dtype),
+                plugin='tifffile',
+                check_contrast=False
+            )
 
 def extract_bin_files(data_dir: str, out_dir: str,
                       include_fovs: Union[List[str], None] = None,
