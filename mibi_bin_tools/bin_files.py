@@ -81,13 +81,21 @@ def _write_out(img_data, out_dir, fov_name, targets):
         '_intensity',
         '_int_width'
     ]
-    for i, out_dir, suffix in enumerate(zip(out_dirs, suffixes)):
-        if not os.path.exitst(out_dir):
-            os.makedirs(out_dir)
+    save_dtypes = [
+        np.uint16,
+        np.uint32,
+        np.uint32,
+    ]
+    for i, (out_dir_i, suffix, save_dtype) in enumerate(zip(out_dirs, suffixes, save_dtypes)):
+        if not os.path.exists(out_dir_i):
+            os.makedirs(out_dir_i)
         for j, target in enumerate(targets):
-            io.imsave(os.path.join(out_dir, f'{target}{suffix}.tiff'), img_data[i, :, :, j],
-                      plugin='tifffile', check_contrast=False)
-
+            io.imsave(
+                os.path.join(out_dir_i, f'{target}{suffix}.tiff'),
+                img_data[i, :, :, j].astype(save_dtype),
+                plugin='tifffile',
+                check_contrast=False
+            )
 
 def _find_bin_files(data_dir: str, include_fovs: Union[List[str], None] = None):
     """Locates paired bin/json files within the provided directory.
@@ -210,18 +218,27 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
-    with mp.Pool() as pool:
-        for fov, bf in bin_files:
-            # call extraction cython here
+
+    if write_parallel:
+        with mp.Pool() as pool:
+            for i, (fov, bf) in enumerate(bin_files):
+                # call extraction cython here
+                img_data = _extract_bin.c_extract_bin(
+                    bytes(bf, 'utf-8'), fov['lower_tof_range'],
+                    fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
+                pool.apply_async(
+                    write_out, 
+                    (img_data, out_dir, fov['bin'][:-4], fov['targets'])
+                )
+            pool.close()
+            pool.join()
+    else:
+        for i, (fov, bf) in enumerate(bin_files):
             img_data = _extract_bin.c_extract_bin(
                 bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
-            pool.apply_async(
-                _write_out, 
-                (img_data, out_dir, fov['bin'][:-4], fov['targets'])
+                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
             )
-        pool.close()
-        pool.join()
+            write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
 def get_width_histogram(data_dir: str, out_dir: str, fov: str, channel: str,
                         mass_range=(-0.3, 0.0), time_res: float=500e-6):

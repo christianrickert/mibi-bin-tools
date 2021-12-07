@@ -1,3 +1,6 @@
 .devcontainer/*
 .vscode/*
 scripts/
+mibi_bin_tools/*.c
+mibi_bin_tools/*.html
+mibi_bin_tools/*.so
