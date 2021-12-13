@@ -336,7 +336,7 @@ def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0
         time_res (float):
             Time resolution for scaling parabolic transformation
     """
-    fov = _find_bin_files(data_dir, [fov])[0]
+    fov = _find_bin_files(data_dir, [fov])[fov]
     
     _fill_fov_metadata(data_dir, fov, mass_range, False, time_res, [channel])
 
@@ -373,7 +373,7 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
 
     """
 
-    fov = _find_bin_files(data_dir, [fov])[0]
+    fov = _find_bin_files(data_dir, [fov])[fov]
     
     _fill_fov_metadata(data_dir, fov, panel, False, time_res, [channel])
 
