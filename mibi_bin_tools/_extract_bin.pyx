@@ -169,8 +169,8 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
 cdef void _extract_histograms(const char* filename, DTYPE_t low_range,
-                              DTYPE_t high_range, MAXINDEX* widths, MAXINDEX* intensities,
-                              MAXINDEX* pulse_counts):
+                              DTYPE_t high_range, MAXINDEX_t* widths, MAXINDEX_t* intensities,
+                              MAXINDEX_t* pulse_counts):
     """ Creates histogram of observed peak widths within specified integration range
 
     Args:
@@ -324,11 +324,15 @@ def c_extract_bin(char* filename, DTYPE_t[:] low_range,
 def c_extract_histograms(char* filename, DTYPE_t low_range,
                          DTYPE_t high_range):
     
-    cdef MAXINDEX_t widths[256] = {0};
-    cdef MAXINDEX_t intensity[USHRT_MAX] = {0};
-    cdef MAXINDEX_t pulse_counts[256] = {0};
+    cdef MAXINDEX_t widths[256]
+    cdef MAXINDEX_t intensity[USHRT_MAX]
+    cdef MAXINDEX_t pulse_counts[256]
 
-    _extract_histograms(filename, low_range, high_range, widths, intensity, pulse_counts);
+    memset(widths, 0, 256 * sizeof(MAXINDEX_t))
+    memset(intensity, 0, USHRT_MAX * sizeof(MAXINDEX_t))
+    memset(pulse_counts, 0, 256 * sizeof(MAXINDEX_t))
+
+    _extract_histograms(filename, low_range, high_range, widths, intensity, pulse_counts)
 
     return (
         np.asarray(widths),
