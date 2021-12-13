@@ -9,10 +9,46 @@ import skimage.io as io
 
 from mibi_bin_tools import io_utils, _extract_bin
 
-def mass2tof(masses_arr, mass_offset, mass_gain, time_res):
+
+def _mass2tof(masses_arr: np.ndarray, mass_offset: float, mass_gain: float,
+              time_res: float) -> np.ndarray:
+    """Convert array of m/z values to equivalent time of flight values
+
+    Args:
+        masses_arr (array_like):
+            Array of m/z values
+        mass_offset (float):
+            Mass offset for parabolic transformation
+        mass_gain (float):
+            Mass gain for parabolic transformation
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+
+    Returns:
+        array_like:
+            Array of time of flight values; indicies paried to `masses_arr`
+    """
     return (mass_gain * np.sqrt(masses_arr) + mass_offset) / time_res
 
-def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray, time_res: float):
+
+def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray,
+                    time_res: float) -> None:
+    """Converts and stores provided mass ranges as time of flight ranges within fov metadata
+
+    Args:
+        fov (Dict[str, Any]):
+            Metadata for the fov.
+        higher (array_like):
+            Array of m/z values; upper bounds for integration
+        lower (array_like):
+            Array of m/z values; lower bounds for integration
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+
+    Returns:
+        None:
+            Fovs argument is modified in place
+    """
     key_names = ('upper_tof_range', 'lower_tof_range')
     mass_ranges = (higher, lower)
     wrapping_functions = (np.ceil, np.floor)
@@ -20,10 +56,23 @@ def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray, 
     for key, masses, wrap in zip(key_names, mass_ranges, wrapping_functions):
         fov[key] = \
             wrap(
-                mass2tof(masses, fov['mass_offset'], fov['mass_gain'], time_res)
+                _mass2tof(masses, fov['mass_offset'], fov['mass_gain'], time_res)
             ).astype(np.uint16)
 
-def write_out(img_data, out_dir, fov_name, targets):
+
+def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[str]) -> None:
+    """Parses extracted data and writes out tifs
+
+    Args:
+        img_data (np.ndarray):
+            Array containing the pulse counts, intensity, and intensity * width images
+        out_dir (str | PathLike):
+            Directory to save tifs
+        fov_name (str):
+            Name of the field of view
+        targets (array_like):
+            List of target names (i.e channels)
+    """
     out_dirs = [
         os.path.join(out_dir, fov_name),
         os.path.join(out_dir, fov_name, 'intensities'),
@@ -50,14 +99,20 @@ def write_out(img_data, out_dir, fov_name, targets):
                 check_contrast=False
             )
 
-def extract_bin_files(data_dir: str, out_dir: str,
-                      include_fovs: Union[List[str], None] = None,
-                      panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6,
-                      write_parallel: bool = True):
-    
-    # TODO: intensities
+def _find_bin_files(data_dir: str,
+                    include_fovs: Union[List[str], None] = None) -> Dict[str, Dict[str, str]]:
+    """Locates paired bin/json files within the provided directory.
 
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin/json files
+        include_fovs (List | None):
+            List of fovs to include. Includes all if None.
+
+    Returns:
+        Dict[str, Dict[str, str]]:
+            Dictionary containing the names of the valid bin files
+    """
     bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
     json_files = io_utils.list_files(data_dir, substrs=['.json'])
 
@@ -74,39 +129,171 @@ def extract_bin_files(data_dir: str, out_dir: str,
 
     if include_fovs is not None:
         fov_files = {fov_file: fov_files[fov_file] for fov_file in include_fovs}
+    
+    return fov_files
+
+
+def _fill_fov_metadata(data_dir: str, fov: Dict[str, Any],
+                       panel: Union[Tuple[float, float], pd.DataFrame],
+                       intensities: Union[bool, List[str]], time_res: float,
+                       channels: List[str] = None) -> None:
+    """ Parses user input and mibiscope json to build extraction parameters
+    
+    Fills fov metadata with mass calibration parameters, builds panel, and sets intensity
+    extraction flags.
+
+    Args:
+        data_dir (str):
+            Directory containing bin files as well as accompanying json metadata files
+        fov (Dict[str, Any]):
+            Metadata for the fov.
+        panel (tuple | pd.DataFrame):
+            If a tuple, global integration range over all antibodies within json metadata.
+            If a pd.DataFrame, specific peaks with custom integration ranges.  Column names must be
+            'Mass' and 'Target' with integration ranges specified via 'Start' and 'Stop' columns.
+        intensities (bool | List[str]):
+            Whether or not to extract intensity and intensity * width images.  If a List, specific
+            peaks can be extracted, ignoring the rest, which will only have pulse count images
+            extracted.
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+        channels (List[str] | None):
+            Filters panel for given channels.  All channels in panel extracted if None
+    Returns:
+        None:
+            `fov` argument is modified in place
+    """
+ 
+    with open(os.path.join(data_dir, fov['json']), 'rb') as f:
+        data = json.load(f)
+
+    fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
+    fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
+
+    if type(panel) is tuple:
+        _parse_global_panel(data, fov, panel, time_res, channels)
+    else:
+        _parse_df_panel(fov, panel, time_res, channels)
+
+    _parse_intensities(fov, intensities)
+
+
+def _parse_global_panel(json_metadata: dict, fov: Dict[str, Any], panel: Tuple[float, float],
+                        time_res: float, channels: List[str]) -> None:
+    """Extracts panel contained in mibiscope json metadata
+
+    Args:
+        json_metadata (dict):
+            metadata read via mibiscope json 
+        fov (Dict[str, Any]):
+            Metadata for the fov.
+        panel (tuple):
+            Global integration range over all antibodies within json metadata.
+            Column names must 'Mass' and 'Target' with integration ranges specified via 'Start' and
+            'Stop' columns.
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+        channels (List[str] | None):
+            Filters panel for given channels.  All channels in panel extracted if None
+    Returns:
+        None:
+            `fov` argument is modified in place
+    """
+    rows = json_metadata['fov']['panel']['conjugates']
+    fov['masses'], fov['targets'] = zip(*[
+        (el['mass'], el['target'])
+        for el in rows
+        if channels is None or el['target'] in channels
+    ])
+
+    masses_arr = np.array(fov['masses'])
+    _set_tof_ranges(fov, masses_arr + panel[1], masses_arr + panel[0], time_res)
+
+
+def _parse_df_panel(fov: Dict[str, Any], panel: pd.DataFrame, time_res: float,
+                    channels: List[str]) -> None:
+    """Converts masses from panel into times for fov extraction-metadata structure
+
+    Args:
+        fov (Dict[str, Any]):
+            Metadata for the fov.
+        panel (pd.DataFrame):
+            Specific peaks with custom integration ranges.  Column names must be 'Mass' and
+            'Target' with integration ranges specified via 'Start' and 'Stop' columns.
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+        channels (List[str] | None):
+            Filters panel for given channels.  All channels in panel extracted if None
+    Returns:
+        None:
+            `fov` argument is modified in place
+    """
+    rows = panel.loc[panel['Target'].isin(panel['Target'] if channels is None else channels)]
+    fov['masses'] = rows['Mass']
+    fov['targets'] = rows['Target']
+
+    _set_tof_ranges(fov, rows['Stop'].values, rows['Start'].values, time_res)
+
+
+def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]]) -> None:
+    """Sets intensity extraction flags within the extraction-metadata
+
+    Args:
+        fov (Dict[str, Any]):
+            Metadata for the fov
+        intensities (bool | List):
+            Whether or not to extract intensity and intensity * width images.  If a List, specific
+            peaks can be extracted, ignoring the rest, which will only have pulse count images
+            extracted.
+    Returns:
+        None:
+            `fov` argument is modified in place 
+    """
+
+    if type(intensities) is list:
+        fov['intensities'] = [target in intensities for target in fov['targets']]
+    elif intensities is True:
+        fov['intensities'] = fov['targets']
+
+    # order the 'calc_intensity' bools 
+    if 'intensities' in fov.keys():
+        fov['calc_intensity'] = [target in fov['intensities'] for target in fov['targets']]
+    else:
+        fov['calc_intensity'] = [False,] * len(fov['targets'])
+
+
+def extract_bin_files(data_dir: str, out_dir: str,
+                      include_fovs: Union[List[str], None] = None,
+                      panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
+                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6,
+                      write_parallel: bool = True):
+    """Converts MibiScope bin files to pulse count, intensity, and intensity * width tiff images
+    
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin files as well as accompanying json metadata files
+        out_dir (str | PathLike):
+            Directory to save the tiffs in
+        include_fovs (List | None):
+            List of fovs to include.  Includes all if None.
+        panel (tuple | pd.DataFrame):
+            If a tuple, global integration range over all antibodies within json metadata.
+            If a pd.DataFrame, specific peaks with custom integration ranges.  Column names must be
+            'Mass' and 'Target' with integration ranges specified via 'Start' and 'Stop' columns.
+        intensities (bool | List):
+            Whether or not to extract intensity and intensity * width images.  If a List, specific
+            peaks can be extracted, ignoring the rest, which will only have pulse count images
+            extracted.
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+        write_parallel (bool):
+            Try writing files out in parallel
+    """
+    fov_files = _find_bin_files(data_dir, include_fovs)
 
     for fov in fov_files.values():
-        with open(os.path.join(data_dir, fov['json']), 'rb') as f:
-            data = json.load(f)
+        _fill_fov_metadata(data_dir, fov, panel, intensities, time_res)
 
-        fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
-        fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
-
-        if type(panel) is tuple:
-            rows = data['fov']['panel']['conjugates']
-            fov['masses'], fov['targets'] = zip(*[(el['mass'], el['target']) for el in rows])
-
-            masses_arr = np.array(fov['masses'])
-            _set_tof_ranges(fov, masses_arr + panel[1], masses_arr + panel[0], time_res)
-        else:
-            fov['masses'] = panel['Mass']
-            fov['targets'] = panel['Target']
-
-            _set_tof_ranges(fov, panel['Stop'].values, panel['Start'].values, time_res)
-
-        if type(intensities) is list:
-            fov['intensities'] = [target in intensities for target in fov['targets']]
-        elif intensities is True:
-            fov['intensities'] = fov['targets']
-
-        # order the 'calc_intensity' bools 
-        if 'intensities' in fov.keys():
-            fov['calc_intensity'] = [target in fov['intensities'] for target in fov['targets']]
-        else:
-            fov['calc_intensity'] = [False,] * len(fov['targets'])
-
-    # start download of bin files to new tmp dir
-    bin_file_paths = [os.path.join(data_dir, fov['bin']) for fov in fov_files.values()]
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
@@ -119,107 +306,46 @@ def extract_bin_files(data_dir: str, out_dir: str,
                     bytes(bf, 'utf-8'), fov['lower_tof_range'],
                     fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
                 pool.apply_async(
-                    write_out, 
+                    _write_out, 
                     (img_data, out_dir, fov['bin'][:-4], fov['targets'])
                 )
-            pool.close()
             pool.join()
+            pool.close()
     else:
         for i, (fov, bf) in enumerate(bin_files):
             img_data = _extract_bin.c_extract_bin(
                 bytes(bf, 'utf-8'), fov['lower_tof_range'],
                 fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
             )
-            write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
+            _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
-def extract_no_sum(data_dir, out_dir, fov, channel, mass_range=(-0.3, 0.0), time_res: float=500e-6):
-    bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
-    json_files = io_utils.list_files(data_dir, substrs=['.json'])
+def get_width_histogram(data_dir: str, out_dir: str, fov: str, channel: str,
+                        mass_range=(-0.3, 0.0), time_res: float=500e-6):
+    """Generates histogram of all pulse widths found within the given mass range
 
-    fov_names = io_utils.extract_delimited_names(bin_files, delimiter='.')
-
-    fov_files = {
-        fov_name: {
-            'bin': fov_name + '.bin',
-            'json': fov_name + '.json',
-        }
-        for fov_name in fov_names
-        if fov_name + '.json' in json_files
-    }
-
-    fov = fov_files[fov]
-    with open(os.path.join(data_dir, fov['json']), 'rb') as f:
-        data = json.load(f)
-
-    fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
-    fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
-
-    rows = data['fov']['panel']['conjugates']
-    fov['masses'], fov['targets'] = zip(*[(el['mass'], el['target']) for el in rows])
-    t_index = fov['targets'].index(channel)
-    fov['masses'] = fov['masses'][t_index]
-    fov['targets'] = fov['targets'][t_index]
-
-    masses_arr = np.array(fov['masses'])
-    _set_tof_ranges(fov, masses_arr + mass_range[1], masses_arr + mass_range[0], time_res)
-
-    # start download of bin files to new tmp dir
-    bin_file_paths = os.path.join(data_dir, fov['bin'])
+    
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin files as well as accompanying json metadata files
+        out_dir (str | PathLike):
+            Directory to save the tiffs in
+        fov (str):
+            Fov to generate histogram for
+        channel (str):
+            Channel to check widths for
+        mass_range (tuple):
+            Integration range
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+    """
+    fov = _find_bin_files(data_dir, [fov])[0]
+    
+    _fill_fov_metadata(data_dir, fov, mass_range, False, time_res, [channel])
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
-    with mp.Pool() as pool:
-        # call extraction cython here
-        discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), 
-                                                   fov['lower_tof_range'],
-                                                   fov['upper_tof_range'] 
-        )
-        pool.close()
-        pool.join()
+    discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), 
+                                               fov['lower_tof_range'],
+                                               fov['upper_tof_range'])
 
     return discovered
-
-
-def median_height_vs_mean_pp(data_dir, fov, channel, panel=(-0.3, 0.0),
-                             time_res: float=500e-6):
-    bin_files = io_utils.list_files(data_dir, substrs=['.bin'])
-    json_files = io_utils.list_files(data_dir, substrs=['.json'])
-
-    fov_names = io_utils.extract_delimited_names(bin_files, delimiter='.')
-
-    fov_files = {
-        fov_name: {
-            'bin': fov_name + '.bin',
-            'json': fov_name + '.json',
-        }
-        for fov_name in fov_names
-        if fov_name + '.json' in json_files
-    }
-
-    fov = fov_files[fov]
-    with open(os.path.join(data_dir, fov['json']), 'rb') as f:
-        data = json.load(f)
-
-    fov['mass_gain'] = data['fov']['fullTiming']['massCalibration']['massGain']
-    fov['mass_offset'] = data['fov']['fullTiming']['massCalibration']['massOffset']
-    if type(panel) is tuple:
-        rows = data['fov']['panel']['conjugates']
-        fov['masses'], fov['targets'] = zip(*[(el['mass'], el['target']) for el in rows])
-
-        masses_arr = np.array(fov['masses'])
-        _set_tof_ranges(fov, masses_arr + panel[1], masses_arr + panel[0], time_res)
-    else:
-        fov['masses'] = list(panel['Mass'])
-        fov['targets'] = list(panel['Target'])
-
-        _set_tof_ranges(fov, panel['Stop'].values, panel['Start'].values, time_res)
-    t_index = fov['targets'].index(channel)
-
-    local_bin_file = os.path.join(data_dir, fov['bin'])
-
-    median_height, mean_pp = \
-        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
-                                                      fov['lower_tof_range'][t_index],
-                                                      fov['upper_tof_range'][t_index])
-
-    return median_height, mean_pp
