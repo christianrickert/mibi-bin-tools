@@ -4,6 +4,7 @@ from cython cimport cdivision, boundscheck, wraparound
 from libc.stdlib cimport malloc, free, realloc, qsort
 from libc.string cimport memcpy, memset
 from libc.stdio cimport fopen, fclose, FILE, EOF, fseek, SEEK_SET, SEEK_CUR, fread
+from libc.limits cimport USHRT_MAX
 
 import numpy as np
 cimport numpy as np
@@ -167,8 +168,9 @@ cdef INT_t[:, :, :, :] _extract_bin(const char* filename,
 @boundscheck(False) # Deactivate bounds checking
 @wraparound(False)  # Deactivate negative indexing
 @cdivision(True) # Ignore modulo/divide by zero warning
-cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
-                                   DTYPE_t high_range):
+cdef void _extract_histograms(const char* filename, DTYPE_t low_range,
+                              DTYPE_t high_range, MAXINDEX* widths, MAXINDEX* intensities,
+                              MAXINDEX* pulse_counts):
     """ Creates histogram of observed peak widths within specified integration range
 
     Args:
@@ -184,6 +186,7 @@ cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
     cdef SMALL_t width
     cdef MAXINDEX_t data_start, pix 
     cdef int idx
+    cdef DTYPE_t p_cnt = 0
 
     # 10MB buffer
     cdef MAXINDEX_t BUFFER_SIZE = 10 * 1024 * 1024
@@ -207,9 +210,6 @@ cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
     data_start = \
         <MAXINDEX_t>(num_x) * <MAXINDEX_t>(num_y) * <MAXINDEX_t>(num_frames) * 8 + desc_len + 0x12
 
-    cdef MAXINDEX_t widths[256]
-    memset(widths, 0, 256*sizeof(MAXINDEX_t))
-
     fseek(fp, data_start, SEEK_SET)
     fread(file_buffer, sizeof(char), BUFFER_SIZE, fp)
     for pix in range(<MAXINDEX_t>(num_x) * <MAXINDEX_t>(num_y)):
@@ -219,6 +219,7 @@ cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
             _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x8 * sizeof(char), BUFFER_SIZE)
             memcpy(&num_pulses, file_buffer + buffer_idx + 0x6, sizeof(time))
             buffer_idx += 0x8
+            p_cnt = 0
             for pulse in range(num_pulses):
                 _check_buffer_refill(fp, file_buffer, &buffer_idx, 0x5 * sizeof(char), BUFFER_SIZE)
                 memcpy(&time, file_buffer + buffer_idx, sizeof(time))
@@ -227,12 +228,13 @@ cdef MAXINDEX_t[:] _extract_no_sum(const char* filename, DTYPE_t low_range,
                 buffer_idx += 0x5
                 if time <= high_range and time >= low_range:
                     widths[width] += 1
+                    intensities[intensity] += 1
+                    p_cnt += 1
+            if p_cnt != 0:
+                pulse_counts[p_cnt] += 1
 
     fclose(fp)
     free(file_buffer)
-
-    return np.copy(widths, order='C')
-
 
 cdef int _comp(const void *a, const void *b) nogil:
     cdef int *x = <int *>a
@@ -319,10 +321,19 @@ def c_extract_bin(char* filename, DTYPE_t[:] low_range,
     )
 
 
-def c_extract_no_sum(char* filename, DTYPE_t low_range,
-                     DTYPE_t high_range):
-    return np.asarray(
-        _extract_no_sum(filename, low_range, high_range)
+def c_extract_histograms(char* filename, DTYPE_t low_range,
+                         DTYPE_t high_range):
+    
+    cdef MAXINDEX_t widths[256] = {0};
+    cdef MAXINDEX_t intensity[USHRT_MAX] = {0};
+    cdef MAXINDEX_t pulse_counts[256] = {0};
+
+    _extract_histograms(filename, low_range, high_range, widths, intensity, pulse_counts);
+
+    return (
+        np.asarray(widths),
+        np.asarray(intensity),
+        np.asarray(pulse_counts)
     )
 
 def c_pulse_height_vs_positive_pixel(char* filename, DTYPE_t low_range, DTYPE_t high_range):
