@@ -1,4 +1,3 @@
-import setuptools
 from os import path, pardir
 from setuptools import setup, find_packages, Extension
 import numpy as np
