@@ -379,9 +379,18 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
-    median_height, mean_pp = \
+    # TODO: fix median calculation in this call
+    _ , mean_pp = \
         _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
                                                       fov['lower_tof_range'][0],
                                                       fov['upper_tof_range'][0])
+
+    _, intensities, _ = \
+        _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'), 
+                                          fov['lower_tof_range'][0],
+                                          fov['upper_tof_range'][0]) 
+
+    int_bin = np.cumsum(intensities) / intensities.sum()
+    median_height = (np.abs(int_bin - 0.5)).argmin()
 
     return median_height, mean_pp
