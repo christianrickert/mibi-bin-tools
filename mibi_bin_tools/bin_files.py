@@ -319,16 +319,14 @@ def extract_bin_files(data_dir: str, out_dir: str,
             )
             _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
-def get_width_histogram(data_dir: str, out_dir: str, fov: str, channel: str,
-                        mass_range=(-0.3, 0.0), time_res: float=500e-6):
-    """Generates histogram of all pulse widths found within the given mass range
-
+def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),
+                           time_res: float=500e-6):
+    """Generates histograms of pulse widths, pulse counts, and pulse intensities found within the
+    given mass range
     
     Args:
         data_dir (str | PathLike):
             Directory containing bin files as well as accompanying json metadata files
-        out_dir (str | PathLike):
-            Directory to save the tiffs in
         fov (str):
             Fov to generate histogram for
         channel (str):
@@ -338,14 +336,61 @@ def get_width_histogram(data_dir: str, out_dir: str, fov: str, channel: str,
         time_res (float):
             Time resolution for scaling parabolic transformation
     """
-    fov = _find_bin_files(data_dir, [fov])[0]
+    fov = _find_bin_files(data_dir, [fov])[fov]
     
     _fill_fov_metadata(data_dir, fov, mass_range, False, time_res, [channel])
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
+    widths, intensities, pulses = _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'), 
+                                                                    fov['lower_tof_range'][0],
+                                                                    fov['upper_tof_range'][0])
+    
+    """ old
     discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), 
-                                               fov['lower_tof_range'],
-                                               fov['upper_tof_range'])
+                                               fov['lower_tof_range'][0],
+                                               fov['upper_tof_range'][0])
+    """
+    return widths, intensities, pulses 
 
-    return discovered
+
+def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
+                             panel: Union[Tuple[float, float], pd.DataFrame]=(-0.3, 0.0),
+                             time_res: float=500e-6):
+    """Retrieves median pulse intensity and mean pulse count for a given channel
+
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin files as well as accompanying json metadata files
+        fov (str):
+            Fov to generate histogram for
+        channel (str):
+            Channel to check widths for
+        mass_range (tuple | pd.DataFrame):
+            Integration range
+        time_res (float):
+            Time resolution for scaling parabolic transformation
+
+    """
+
+    fov = _find_bin_files(data_dir, [fov])[fov]
+    
+    _fill_fov_metadata(data_dir, fov, panel, False, time_res, [channel])
+
+    local_bin_file = os.path.join(data_dir, fov['bin'])
+
+    # TODO: fix median calculation in this call
+    _ , mean_pp = \
+        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
+                                                      fov['lower_tof_range'][0],
+                                                      fov['upper_tof_range'][0])
+
+    _, intensities, _ = \
+        _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'), 
+                                          fov['lower_tof_range'][0],
+                                          fov['upper_tof_range'][0]) 
+
+    int_bin = np.cumsum(intensities) / intensities.sum()
+    median_height = (np.abs(int_bin - 0.5)).argmin()
+
+    return median_height, mean_pp
