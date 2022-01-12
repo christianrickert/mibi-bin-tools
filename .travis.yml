@@ -19,7 +19,7 @@ cache: pip
 
 script:
   - python -m pip install --editable .
-  - python -m pytest --cov=mibi_bin_tools --pycodestyle -v tests/* mibi_bin_tools
+  - python -m pytest --cov=mibi_bin_tools --pycodestyle tests/* mibi_bin_tools
 
 after_success:
   - coveralls
