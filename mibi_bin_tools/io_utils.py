@@ -165,17 +165,3 @@ def list_folders(dir_name, substrs=None):
                ])]
 
     return matches
-
-
-def getmtime(filepath):
-    """ Generalizes os.path.getmtime for google drive paths
-
-    Args:
-        filepath (PathLike):
-            Path to file of interest
-
-    Returns:
-        int:
-            Last modified time
-    """
-    return os.path.getmtime(filepath)
