@@ -5,6 +5,7 @@ import pytest
 
 from mibi_bin_tools import io_utils as iou
 
+
 def test_list_files():
     # test extension matching
     with tempfile.TemporaryDirectory() as temp_dir:

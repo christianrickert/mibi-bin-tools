@@ -1,5 +1,4 @@
-import pytest
-from pytest_cases import parametrize, parametrize_with_cases, case
+from pytest_cases import parametrize, parametrize_with_cases
 from typing import Dict, Tuple
 import os
 from pathlib import Path
@@ -27,7 +26,7 @@ class FovMetadataTestPanels:
             'Stop': 89.0,
         }])
         return panel
-   
+
     def case_specified_panel_failure(self):
         bad_panel = pd.DataFrame([{
             'isotope': 89,
@@ -45,7 +44,7 @@ class FovMetadataTestChannels:
 
     def case_channel_filter_success(self):
         return ['HH3']
-    
+
     def case_channel_filter_failure(self):
         return ['HH2']
 
@@ -96,7 +95,7 @@ def test_write_out():
 
 
 def _make_blank_file(folder: str, name: str):
-    with open(os.path.join(folder, name), 'w') as f:
+    with open(os.path.join(folder, name), 'w'):
         pass
 
 
