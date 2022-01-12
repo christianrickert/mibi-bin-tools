@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Tuple, Union
 import os
 import json
-import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
@@ -266,8 +265,7 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
 def extract_bin_files(data_dir: str, out_dir: str,
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                      intensities: Union[bool, List[str]] = False, time_res: float = 500e-6,
-                      write_parallel: bool = True):
+                      intensities: Union[bool, List[str]] = False, time_res: float = 500e-6):
     """Converts MibiScope bin files to pulse count, intensity, and intensity * width tiff images
 
     Args:
@@ -287,8 +285,6 @@ def extract_bin_files(data_dir: str, out_dir: str,
             extracted.
         time_res (float):
             Time resolution for scaling parabolic transformation
-        write_parallel (bool):
-            Try writing files out in parallel
     """
     fov_files = _find_bin_files(data_dir, include_fovs)
 
@@ -298,26 +294,12 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
-    if write_parallel:
-        with mp.Pool() as pool:
-            for i, (fov, bf) in enumerate(bin_files):
-                # call extraction cython here
-                img_data = _extract_bin.c_extract_bin(
-                    bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                    fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
-                pool.apply_async(
-                    _write_out,
-                    (img_data, out_dir, fov['bin'][:-4], fov['targets'])
-                )
-            pool.join()
-            pool.close()
-    else:
-        for i, (fov, bf) in enumerate(bin_files):
-            img_data = _extract_bin.c_extract_bin(
-                bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
-            )
-            _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
+    for i, (fov, bf) in enumerate(bin_files):
+        img_data = _extract_bin.c_extract_bin(
+            bytes(bf, 'utf-8'), fov['lower_tof_range'],
+            fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
+        )
+        _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
 
 def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),

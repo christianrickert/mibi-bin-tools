@@ -133,7 +133,7 @@ def test_find_bin_files():
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
 def test_fill_fov_metadata_success(panel, channels, intensities):
     fov = {
-        'json': 'fov-1-scan-1.json',
+        'json': 'non_moly.json',
         'bin': 'fov-1-scan-1.bin',
     }
 
@@ -143,16 +143,32 @@ def test_fill_fov_metadata_success(panel, channels, intensities):
     pass
 
 
-# TODO: get reasonable sized test data for this
-def test_extract_bin_files():
-    pass
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
+@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
+def test_extract_bin_files(panel, intensities):
+    time_res = 500e-6
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bin_files.extract_bin_files(TEST_DATA_DIR, tmpdir, None, panel, intensities, time_res)
 
 
-# TODO: get reasonable sized test data for this
-def test_get_width_histogram():
-    pass
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
+def test_get_width_histogram(panel):
+    bin_files.get_histograms_per_tof(
+        TEST_DATA_DIR,
+        'fov-1-scan-1',
+        'HH3',
+        panel,
+        time_res=500e-6
+    )
 
 
-# TODO: get resonalbe sized test data for this
-def test_median_height_vs_mean_pp():
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
+def test_median_height_vs_mean_pp(panel):
+    bin_files.median_height_vs_mean_pp(
+        TEST_DATA_DIR,
+        'fov-1-scan-1',
+        'HH3',
+        panel,
+        500e-6
+    )
     pass
