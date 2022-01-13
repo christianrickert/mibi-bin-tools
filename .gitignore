@@ -11,3 +11,4 @@ mibi_bin_tools/*.so
 *.egg-info
 .coverage
 htmlcov/
+.DS_Store
