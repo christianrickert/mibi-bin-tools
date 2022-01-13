@@ -1,3 +1,6 @@
+[![Build Status](https://travis-ci.com/angelolab/mibi-bin-tools.svg?branch=master)](https://travis-ci.com/angelolab/mibi-bin-tools)
+[![Coverage Status](https://coveralls.io/repos/github/angelolab/mibi-bin-tools/badge.svg?branch=master)](https://coveralls.io/github/angelolab/mibi-bin-tools?branch=master)
+
 # mibi-bin-tools
 
 Toolbox for extracting tiff images from MIBIScope .bin files 
