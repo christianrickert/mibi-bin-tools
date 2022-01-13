@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Tuple, Union
 import os
 import json
-import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
@@ -99,6 +98,7 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
                 check_contrast=False
             )
 
+
 def _find_bin_files(data_dir: str,
                     include_fovs: Union[List[str], None] = None) -> Dict[str, Dict[str, str]]:
     """Locates paired bin/json files within the provided directory.
@@ -129,7 +129,7 @@ def _find_bin_files(data_dir: str,
 
     if include_fovs is not None:
         fov_files = {fov_file: fov_files[fov_file] for fov_file in include_fovs}
-    
+
     return fov_files
 
 
@@ -138,7 +138,7 @@ def _fill_fov_metadata(data_dir: str, fov: Dict[str, Any],
                        intensities: Union[bool, List[str]], time_res: float,
                        channels: List[str] = None) -> None:
     """ Parses user input and mibiscope json to build extraction parameters
-    
+
     Fills fov metadata with mass calibration parameters, builds panel, and sets intensity
     extraction flags.
 
@@ -163,7 +163,7 @@ def _fill_fov_metadata(data_dir: str, fov: Dict[str, Any],
         None:
             `fov` argument is modified in place
     """
- 
+
     with open(os.path.join(data_dir, fov['json']), 'rb') as f:
         data = json.load(f)
 
@@ -184,7 +184,7 @@ def _parse_global_panel(json_metadata: dict, fov: Dict[str, Any], panel: Tuple[f
 
     Args:
         json_metadata (dict):
-            metadata read via mibiscope json 
+            metadata read via mibiscope json
         fov (Dict[str, Any]):
             Metadata for the fov.
         panel (tuple):
@@ -247,7 +247,7 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
             extracted.
     Returns:
         None:
-            `fov` argument is modified in place 
+            `fov` argument is modified in place
     """
 
     if type(intensities) is list:
@@ -255,20 +255,19 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
     elif intensities is True:
         fov['intensities'] = fov['targets']
 
-    # order the 'calc_intensity' bools 
+    # order the 'calc_intensity' bools
     if 'intensities' in fov.keys():
         fov['calc_intensity'] = [target in fov['intensities'] for target in fov['targets']]
     else:
-        fov['calc_intensity'] = [False,] * len(fov['targets'])
+        fov['calc_intensity'] = [False, ] * len(fov['targets'])
 
 
 def extract_bin_files(data_dir: str, out_dir: str,
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                      intensities: Union[bool, List[str]] = False, time_res: float=500e-6,
-                      write_parallel: bool = True):
+                      intensities: Union[bool, List[str]] = False, time_res: float = 500e-6):
     """Converts MibiScope bin files to pulse count, intensity, and intensity * width tiff images
-    
+
     Args:
         data_dir (str | PathLike):
             Directory containing bin files as well as accompanying json metadata files
@@ -286,8 +285,6 @@ def extract_bin_files(data_dir: str, out_dir: str,
             extracted.
         time_res (float):
             Time resolution for scaling parabolic transformation
-        write_parallel (bool):
-            Try writing files out in parallel
     """
     fov_files = _find_bin_files(data_dir, include_fovs)
 
@@ -297,33 +294,19 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
+    for i, (fov, bf) in enumerate(bin_files):
+        img_data = _extract_bin.c_extract_bin(
+            bytes(bf, 'utf-8'), fov['lower_tof_range'],
+            fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
+        )
+        _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
-    if write_parallel:
-        with mp.Pool() as pool:
-            for i, (fov, bf) in enumerate(bin_files):
-                # call extraction cython here
-                img_data = _extract_bin.c_extract_bin(
-                    bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                    fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8))
-                pool.apply_async(
-                    _write_out, 
-                    (img_data, out_dir, fov['bin'][:-4], fov['targets'])
-                )
-            pool.join()
-            pool.close()
-    else:
-        for i, (fov, bf) in enumerate(bin_files):
-            img_data = _extract_bin.c_extract_bin(
-                bytes(bf, 'utf-8'), fov['lower_tof_range'],
-                fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
-            )
-            _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
 
 def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),
-                           time_res: float=500e-6):
+                           time_res: float = 500e-6):
     """Generates histograms of pulse widths, pulse counts, and pulse intensities found within the
     given mass range
-    
+
     Args:
         data_dir (str | PathLike):
             Directory containing bin files as well as accompanying json metadata files
@@ -337,26 +320,20 @@ def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0
             Time resolution for scaling parabolic transformation
     """
     fov = _find_bin_files(data_dir, [fov])[fov]
-    
+
     _fill_fov_metadata(data_dir, fov, mass_range, False, time_res, [channel])
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
-    widths, intensities, pulses = _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'), 
+    widths, intensities, pulses = _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'),
                                                                     fov['lower_tof_range'][0],
                                                                     fov['upper_tof_range'][0])
-    
-    """ old
-    discovered = _extract_bin.c_extract_no_sum(bytes(local_bin_file, 'utf-8'), 
-                                               fov['lower_tof_range'][0],
-                                               fov['upper_tof_range'][0])
-    """
-    return widths, intensities, pulses 
+    return widths, intensities, pulses
 
 
 def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
-                             panel: Union[Tuple[float, float], pd.DataFrame]=(-0.3, 0.0),
-                             time_res: float=500e-6):
+                             panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
+                             time_res: float = 500e-6):
     """Retrieves median pulse intensity and mean pulse count for a given channel
 
     Args:
@@ -374,21 +351,20 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
     """
 
     fov = _find_bin_files(data_dir, [fov])[fov]
-    
     _fill_fov_metadata(data_dir, fov, panel, False, time_res, [channel])
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
     # TODO: fix median calculation in this call
-    _ , mean_pp = \
-        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'), 
+    _, mean_pp = \
+        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'),
                                                       fov['lower_tof_range'][0],
                                                       fov['upper_tof_range'][0])
 
     _, intensities, _ = \
-        _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'), 
+        _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'),
                                           fov['lower_tof_range'][0],
-                                          fov['upper_tof_range'][0]) 
+                                          fov['upper_tof_range'][0])
 
     int_bin = np.cumsum(intensities) / intensities.sum()
     median_height = (np.abs(int_bin - 0.5)).argmin()
