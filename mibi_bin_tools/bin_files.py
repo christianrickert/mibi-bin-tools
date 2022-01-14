@@ -59,7 +59,8 @@ def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray,
             ).astype(np.uint16)
 
 
-def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[str]) -> None:
+def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[str],
+               intensities=True) -> None:
     """Parses extracted data and writes out tifs
 
     Args:
@@ -71,6 +72,8 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
             Name of the field of view
         targets (array_like):
             List of target names (i.e channels)
+        intensities (bool):
+            Save intensities
     """
     out_dirs = [
         os.path.join(out_dir, fov_name),
@@ -88,6 +91,8 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
         np.uint32,
     ]
     for i, (out_dir_i, suffix, save_dtype) in enumerate(zip(out_dirs, suffixes, save_dtypes)):
+        if i > 0 and not intensities:
+            continue
         if not os.path.exists(out_dir_i):
             os.makedirs(out_dir_i)
         for j, target in enumerate(targets):
@@ -251,13 +256,13 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
     """
 
     if type(intensities) is list:
-        fov['intensities'] = [target in intensities for target in fov['targets']]
+        fov['intensities'] = [target for target in fov['targets'] if target in intensities]
     elif intensities is True:
         fov['intensities'] = fov['targets']
 
     # order the 'calc_intensity' bools
     if 'intensities' in fov.keys():
-        fov['calc_intensity'] = [target in fov['intensities'] for target in fov['targets']]
+        fov['calc_intensity'] = [target in list(fov['intensities']) for target in fov['targets']]
     else:
         fov['calc_intensity'] = [False, ] * len(fov['targets'])
 
@@ -299,7 +304,13 @@ def extract_bin_files(data_dir: str, out_dir: str,
             bytes(bf, 'utf-8'), fov['lower_tof_range'],
             fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
         )
-        _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
+        _write_out(
+            img_data,
+            out_dir,
+            fov['bin'][:-4],
+            fov['targets'],
+            any(intensities if hasattr(intensities, '__iter__') else [intensities])
+        )
 
 
 def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),
