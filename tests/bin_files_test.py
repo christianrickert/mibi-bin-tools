@@ -1,4 +1,5 @@
 from pytest_cases import parametrize, parametrize_with_cases, fixture
+import pytest
 from typing import Dict, Tuple
 import os
 from pathlib import Path
@@ -164,6 +165,9 @@ def test_find_bin_files():
         # include_fovs check
         fov_dict = bin_files._find_bin_files(tmpdir, include_fovs=include_fovs)
         assert(set(fov_dict.keys()) == set(include_fovs))
+
+        with pytest.raises(FileNotFoundError, match='No viable bin file'):
+            fov_dict = bin_files._find_bin_files(tmpdir, include_fovs=['fov_fake'])
 
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='*_success')
