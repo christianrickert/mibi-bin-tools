@@ -262,14 +262,15 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
             `fov` argument is modified in place
     """
 
+    filtered_intensities = None
     if type(intensities) is list:
-        fov['intensities'] = [target for target in fov['targets'] if target in intensities]
+        filtered_intensities = [target for target in fov['targets'] if target in intensities]
     elif intensities is True:
-        fov['intensities'] = fov['targets']
+        filtered_intensities = fov['targets']
 
     # order the 'calc_intensity' bools
-    if 'intensities' in fov.keys():
-        fov['calc_intensity'] = [target in list(fov['intensities']) for target in fov['targets']]
+    if filtered_intensities is not None:
+        fov['calc_intensity'] = [target in list(filtered_intensities) for target in fov['targets']]
     else:
         fov['calc_intensity'] = [False, ] * len(fov['targets'])
 
