@@ -128,7 +128,14 @@ def _find_bin_files(data_dir: str,
     }
 
     if include_fovs is not None:
-        fov_files = {fov_file: fov_files[fov_file] for fov_file in include_fovs}
+        fov_files = {
+            fov_file: fov_files[fov_file]
+            for fov_file in include_fovs
+            if fov_file in fov_files
+        }
+
+    if not len(fov_files):
+        raise FileNotFoundError(f'No viable bin files were found in {data_dir}...')
 
     return fov_files
 
