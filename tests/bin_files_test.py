@@ -96,34 +96,16 @@ def _write_outs():
     return filepath_checks
 
 
-def test_write_out():
+def test_write_out(_write_outs):
 
     img_data = np.zeros((3, 10, 10, 5), dtype=np.uint32)
     fov_name = 'fov1'
     targets = [chr(ord('a') + i) for i in range(5)]
 
-    inner_dir_names = [
-        '',
-        'intensities',
-        'intensity_times_width',
-    ]
-
-    suffix_names = [
-        '',
-        '_intensity',
-        '_int_width',
-    ]
-
     with tempfile.TemporaryDirectory() as tmpdir:
         # correctness
         bin_files._write_out(img_data, tmpdir, fov_name, targets)
-
-        assert(os.path.exists(os.path.join(tmpdir, fov_name)))
-        for inner_name, suffix in zip(inner_dir_names, suffix_names):
-            inner_dir = os.path.join(tmpdir, fov_name, inner_name)
-            assert(os.path.exists(inner_dir))
-            for target in targets:
-                assert(os.path.exists(os.path.join(inner_dir, f'{target}{suffix}.tiff')))
+        _write_outs(tmpdir, fov_name, targets, True)
 
     pass
 
