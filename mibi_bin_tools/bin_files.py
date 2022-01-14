@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import skimage.io as io
 
-from mibi_bin_tools import io_utils, _extract_bin
+from mibi_bin_tools import io_utils, type_utils, _extract_bin
 
 
 def _mass2tof(masses_arr: np.ndarray, mass_offset: float, mass_gain: float,
@@ -316,7 +316,7 @@ def extract_bin_files(data_dir: str, out_dir: str,
             out_dir,
             fov['bin'][:-4],
             fov['targets'],
-            any(intensities if hasattr(intensities, '__iter__') else [intensities])
+            type_utils.any_true(intensities)
         )
 
 

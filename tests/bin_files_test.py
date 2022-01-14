@@ -7,7 +7,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 
-from mibi_bin_tools import bin_files
+from mibi_bin_tools import bin_files, type_utils
 
 THIS_DIR = Path(__file__).parent
 
@@ -81,19 +81,14 @@ def _write_outs():
         assert(os.path.exists(os.path.join(out_dir, fov_name)))
         for i, (inner_name, suffix) in enumerate(zip(inner_dir_names, suffix_names)):
             inner_dir = os.path.join(out_dir, fov_name, inner_name)
-            if (
-                i < 1 or
-                any(intensities if hasattr(intensities, '__iter__') else [intensities])
-            ):
+            made_intensity_folder = i < 1 or type_utils.any_true(intensities)
+            if made_intensity_folder:
                 assert(os.path.exists(inner_dir))
             else:
                 assert(not os.path.exists(inner_dir))
             for target in targets:
                 tif_path = os.path.join(inner_dir, f'{target}{suffix}.tiff')
-                if (
-                    i < 1 or
-                    any(intensities if hasattr(intensities, '__iter__') else [intensities])
-                ):
+                if made_intensity_folder:
                     assert(os.path.exists(tif_path))
                 else:
                     assert(not os.path.exists(tif_path))
