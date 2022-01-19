@@ -14,10 +14,28 @@ THIS_DIR = Path(__file__).parent
 TEST_DATA_DIR = THIS_DIR / 'data'
 
 
+class FovMetadataTestFiles:
+
+    def case_non_moly(self):
+        return {
+            'json': 'non_moly.json',
+            'bin': 'fov-1-scan-1.bin',
+        }
+
+    def case_moly(self):
+        return {
+            'json': 'fov-1-scan-1.json',
+            'bin': 'fov-1-scan-1.bin'
+        }
+
+
 class FovMetadataTestPanels:
 
     def case_global_panel_success(self):
         return (-0.3, 0.3)
+
+    def case_global_panel_failure(self):
+        return (-0.3, 0.3), KeyError
 
     def case_specified_panel_success(self):
         panel = pd.DataFrame([{
@@ -35,7 +53,7 @@ class FovMetadataTestPanels:
             'start': 88.7,
             'stop': 89,
         }])
-        return bad_panel
+        return bad_panel, KeyError
 
 
 class FovMetadataTestChannels:
@@ -132,19 +150,25 @@ def test_find_bin_files():
             fov_dict = bin_files._find_bin_files(tmpdir, include_fovs=['fov_fake'])
 
 
+@parametrize_with_cases('fov', cases=FovMetadataTestFiles, glob='non_moly')
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='*_success')
 @parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_fill_fov_metadata_success(panel, channels, intensities):
-    fov = {
-        'json': 'non_moly.json',
-        'bin': 'fov-1-scan-1.bin',
-    }
-
+def test_fill_fov_metadata_success(fov, panel, channels, intensities):
     time_res = 0.5
     # panel type can vary (test intensities)
     bin_files._fill_fov_metadata(TEST_DATA_DIR, fov, panel, intensities, time_res, channels)
     pass
+
+
+@parametrize_with_cases('fov', cases=FovMetadataTestFiles, glob='moly')
+@parametrize_with_cases('panel, err', cases=FovMetadataTestPanels, glob='*_failure')
+@parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
+@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
+def test_fill_fov_metadata_failure(fov, panel, err, channels, intensities):
+    time_res = 0.5
+    with pytest.raises(err):
+        bin_files._fill_fov_metadata(TEST_DATA_DIR, fov, panel, intensities, time_res, channels)
 
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')

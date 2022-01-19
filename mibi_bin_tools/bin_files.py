@@ -206,6 +206,11 @@ def _parse_global_panel(json_metadata: dict, fov: Dict[str, Any], panel: Tuple[f
         None:
             `fov` argument is modified in place
     """
+    if json_metadata['fov'].get('panel', None) is None:
+        raise KeyError(
+            f"'panel' field not found in {fov['json']}. "
+            + "If this is a moly point, you must manually supply a panel..."
+        )
     rows = json_metadata['fov']['panel']['conjugates']
     fov['masses'], fov['targets'] = zip(*[
         (el['mass'], el['target'])
