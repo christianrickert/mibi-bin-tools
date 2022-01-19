@@ -64,7 +64,7 @@ class FovMetadataTestIntensities:
 
 
 @fixture
-def _write_outs():
+def filepath_checks():
     inner_dir_names = [
         '',
         'intensities',
@@ -77,7 +77,7 @@ def _write_outs():
         '_int_width',
     ]
 
-    def filepath_checks(out_dir, fov_name, targets, intensities):
+    def _filepath_checks(out_dir, fov_name, targets, intensities):
         assert(os.path.exists(os.path.join(out_dir, fov_name)))
         for i, (inner_name, suffix) in enumerate(zip(inner_dir_names, suffix_names)):
             inner_dir = os.path.join(out_dir, fov_name, inner_name)
@@ -93,10 +93,10 @@ def _write_outs():
                 else:
                     assert(not os.path.exists(tif_path))
 
-    return filepath_checks
+    return _filepath_checks
 
 
-def test_write_out(_write_outs):
+def test_write_out(filepath_checks):
 
     img_data = np.zeros((3, 10, 10, 5), dtype=np.uint32)
     fov_name = 'fov1'
@@ -105,7 +105,7 @@ def test_write_out(_write_outs):
     with tempfile.TemporaryDirectory() as tmpdir:
         # correctness
         bin_files._write_out(img_data, tmpdir, fov_name, targets)
-        _write_outs(tmpdir, fov_name, targets, True)
+        filepath_checks(tmpdir, fov_name, targets, True)
 
     pass
 
@@ -164,11 +164,11 @@ def test_fill_fov_metadata_success(panel, channels, intensities):
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_extract_bin_files(panel, intensities, _write_outs):
+def test_extract_bin_files(panel, intensities, filepath_checks):
     time_res = 500e-6
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_files.extract_bin_files(TEST_DATA_DIR, tmpdir, None, panel, intensities, time_res)
-        _write_outs(tmpdir, 'fov-1-scan-1', panel['Target'].values, intensities)
+        filepath_checks(tmpdir, 'fov-1-scan-1', panel['Target'].values, intensities)
 
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
