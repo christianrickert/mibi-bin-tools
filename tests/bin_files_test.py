@@ -216,3 +216,7 @@ def test_median_height_vs_mean_pp(panel):
         500e-6
     )
     pass
+
+
+def test_get_total_counts():
+    bin_files.get_total_counts(TEST_DATA_DIR)

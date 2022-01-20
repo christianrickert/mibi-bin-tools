@@ -411,6 +411,6 @@ def get_total_counts(data_dir: str, include_fovs: Union[List[str], None] = None)
     bin_files = \
         [(name, os.path.join(data_dir, fov['bin'])) for name, fov in fov_files.items()]
 
-    outs = {name: _extract_bin.c_total_counts(bytes(bf, 'utf-8')) for name, bf in bin_files.items}
+    outs = {name: _extract_bin.c_total_counts(bytes(bf, 'utf-8')) for name, bf in bin_files}
 
     return outs
