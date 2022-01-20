@@ -32,7 +32,7 @@ You've now installed the code base.
 Enter the following command into terminal from the same directory you ran the above commands:
 
 ```
-./start_docker.sh
+bash start_docker.sh
 ``` 
 
 This will generate a link to a jupyter notebook. Copy the last URL (the one with `127.0.0.1:8888` at the beginning) into your web browser.
@@ -66,11 +66,11 @@ git pull
 
 Then, run the command below to update the jupyter notebooks to the latest version
 ```
-./start_docker.sh --update
+bash start_docker.sh --update
 ```
 or
 ```
-./start_docker.sh -u
+bash start_docker.sh -u
 ```
 
 If the requirements.txt has changed, Docker will rebuild with the new dependencies first.

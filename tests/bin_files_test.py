@@ -1,5 +1,5 @@
+from pytest_cases import parametrize, parametrize_with_cases, fixture
 import pytest
-from pytest_cases import parametrize, parametrize_with_cases
 from typing import Dict, Tuple
 import os
 from pathlib import Path
@@ -7,7 +7,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 
-from mibi_bin_tools import bin_files
+from mibi_bin_tools import bin_files, type_utils
 
 THIS_DIR = Path(__file__).parent
 
@@ -63,12 +63,8 @@ class FovMetadataTestIntensities:
         return ['HH2']
 
 
-def test_write_out():
-
-    img_data = np.zeros((3, 10, 10, 5), dtype=np.uint32)
-    fov_name = 'fov1'
-    targets = [chr(ord('a') + i) for i in range(5)]
-
+@fixture
+def filepath_checks():
     inner_dir_names = [
         '',
         'intensities',
@@ -81,16 +77,35 @@ def test_write_out():
         '_int_width',
     ]
 
+    def _filepath_checks(out_dir, fov_name, targets, intensities):
+        assert(os.path.exists(os.path.join(out_dir, fov_name)))
+        for i, (inner_name, suffix) in enumerate(zip(inner_dir_names, suffix_names)):
+            inner_dir = os.path.join(out_dir, fov_name, inner_name)
+            made_intensity_folder = i < 1 or type_utils.any_true(intensities)
+            if made_intensity_folder:
+                assert(os.path.exists(inner_dir))
+            else:
+                assert(not os.path.exists(inner_dir))
+            for target in targets:
+                tif_path = os.path.join(inner_dir, f'{target}{suffix}.tiff')
+                if made_intensity_folder:
+                    assert(os.path.exists(tif_path))
+                else:
+                    assert(not os.path.exists(tif_path))
+
+    return _filepath_checks
+
+
+def test_write_out(filepath_checks):
+
+    img_data = np.zeros((3, 10, 10, 5), dtype=np.uint32)
+    fov_name = 'fov1'
+    targets = [chr(ord('a') + i) for i in range(5)]
+
     with tempfile.TemporaryDirectory() as tmpdir:
         # correctness
         bin_files._write_out(img_data, tmpdir, fov_name, targets)
-
-        assert(os.path.exists(os.path.join(tmpdir, fov_name)))
-        for inner_name, suffix in zip(inner_dir_names, suffix_names):
-            inner_dir = os.path.join(tmpdir, fov_name, inner_name)
-            assert(os.path.exists(inner_dir))
-            for target in targets:
-                assert(os.path.exists(os.path.join(inner_dir, f'{target}{suffix}.tiff')))
+        filepath_checks(tmpdir, fov_name, targets, True)
 
     pass
 
@@ -149,10 +164,11 @@ def test_fill_fov_metadata_success(panel, channels, intensities):
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_extract_bin_files(panel, intensities):
+def test_extract_bin_files(panel, intensities, filepath_checks):
     time_res = 500e-6
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_files.extract_bin_files(TEST_DATA_DIR, tmpdir, None, panel, intensities, time_res)
+        filepath_checks(tmpdir, 'fov-1-scan-1', panel['Target'].values, intensities)
 
 
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
