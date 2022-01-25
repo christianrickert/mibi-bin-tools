@@ -315,7 +315,12 @@ cdef void _extract_pulse_height_and_positive_pixel(const char* filename, DTYPE_t
 
 
 cdef MAXINDEX_t _extract_total_counts(const char* filename):
-    
+    """ Extract total counts from bin file 
+
+    Args:
+        filename (const char*):
+            Name of bin file to extract
+    """
     cdef DTYPE_t num_x, num_y, num_trig, num_frames, desc_len, trig, num_pulses, pulse, time
     cdef DTYPE_t intensity
     cdef SMALL_t width

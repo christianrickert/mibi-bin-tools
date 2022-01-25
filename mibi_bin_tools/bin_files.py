@@ -404,6 +404,10 @@ def get_total_counts(data_dir: str, include_fovs: Union[List[str], None] = None)
             Directory containing bin files as well as accompanying json metadata files
         include_fovs (List | None):
             List of fovs to include.  Includes all if None.
+
+    Returns:
+        dict:
+            dictionary of total counts, with fov names as keys
     """
 
     fov_files = _find_bin_files(data_dir, include_fovs)
