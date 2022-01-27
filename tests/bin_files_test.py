@@ -1,4 +1,6 @@
-from pytest_cases import parametrize, parametrize_with_cases, fixture
+from pytest_cases import (
+    parametrize, parametrize_with_cases, fixture
+)
 import pytest
 from typing import Dict, Tuple
 import os
@@ -7,7 +9,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 
-from mibi_bin_tools import bin_files, type_utils
+from mibi_bin_tools import bin_files, type_utils, _extract_bin
 
 THIS_DIR = Path(__file__).parent
 
@@ -16,17 +18,17 @@ TEST_DATA_DIR = THIS_DIR / 'data'
 
 class FovMetadataTestFiles:
 
-    def case_non_moly(self):
-        return {
-            'json': 'non_moly.json',
+    def _generic(self, parent_folder):
+        return os.path.join(TEST_DATA_DIR, parent_folder), {
+            'json': 'fov-1-scan-1.json',
             'bin': 'fov-1-scan-1.bin',
         }
 
+    def case_tissue(self):
+        return self._generic('tissue')
+
     def case_moly(self):
-        return {
-            'json': 'fov-1-scan-1.json',
-            'bin': 'fov-1-scan-1.bin'
-        }
+        return self._generic('moly')
 
 
 class FovMetadataTestPanels:
@@ -40,7 +42,7 @@ class FovMetadataTestPanels:
     def case_specified_panel_success(self):
         panel = pd.DataFrame([{
             'Mass': 89,
-            'Target': 'HH3',
+            'Target': 'SMA',
             'Start': 88.7,
             'Stop': 89.0,
         }])
@@ -49,7 +51,7 @@ class FovMetadataTestPanels:
     def case_specified_panel_failure(self):
         bad_panel = pd.DataFrame([{
             'isotope': 89,
-            'antibody': 'HH3',
+            'antibody': 'SMA',
             'start': 88.7,
             'stop': 89,
         }])
@@ -62,7 +64,7 @@ class FovMetadataTestChannels:
         return None
 
     def case_channel_filter_success(self):
-        return ['HH3']
+        return ['SMA']
 
     def case_channel_filter_failure(self):
         return ['HH2']
@@ -75,7 +77,7 @@ class FovMetadataTestIntensities:
         return do_all_intensities
 
     def case_specified_intensities_success(self):
-        return ['HH3']
+        return ['SMA']
 
     def case_format_intensities_failure(self):
         return ['HH2']
@@ -165,58 +167,70 @@ def test_find_bin_files():
             fov_dict = bin_files._find_bin_files(tmpdir, include_fovs=['fov_fake'])
 
 
-@parametrize_with_cases('fov', cases=FovMetadataTestFiles, glob='non_moly')
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, glob='tissue')
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='*_success')
 @parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_fill_fov_metadata_success(fov, panel, channels, intensities):
+def test_fill_fov_metadata_success(test_dir, fov, panel, channels, intensities):
     time_res = 0.5
     # panel type can vary (test intensities)
-    bin_files._fill_fov_metadata(TEST_DATA_DIR, fov, panel, intensities, time_res, channels)
+    bin_files._fill_fov_metadata(test_dir, fov, panel, intensities, time_res, channels)
     pass
 
 
-@parametrize_with_cases('fov', cases=FovMetadataTestFiles, glob='moly')
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, glob='moly')
 @parametrize_with_cases('panel, err', cases=FovMetadataTestPanels, glob='*_failure')
 @parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_fill_fov_metadata_failure(fov, panel, err, channels, intensities):
+def test_fill_fov_metadata_failure(test_dir, fov, panel, err, channels, intensities):
     time_res = 0.5
     with pytest.raises(err):
-        bin_files._fill_fov_metadata(TEST_DATA_DIR, fov, panel, intensities, time_res, channels)
+        bin_files._fill_fov_metadata(test_dir, fov, panel, intensities, time_res, channels)
 
 
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
 @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_extract_bin_files(panel, intensities, filepath_checks):
+def test_extract_bin_files(test_dir, fov, panel, intensities, filepath_checks):
     time_res = 500e-6
     with tempfile.TemporaryDirectory() as tmpdir:
-        bin_files.extract_bin_files(TEST_DATA_DIR, tmpdir, None, panel, intensities, time_res)
-        filepath_checks(tmpdir, 'fov-1-scan-1', panel['Target'].values, intensities)
+        bin_files.extract_bin_files(test_dir, tmpdir, None, panel, intensities, time_res)
+        filepath_checks(tmpdir, fov['json'].split('.')[0], panel['Target'].values, intensities)
 
 
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
-def test_get_width_histogram(panel):
+def test_get_width_histogram(test_dir, fov, panel):
     bin_files.get_histograms_per_tof(
-        TEST_DATA_DIR,
-        'fov-1-scan-1',
-        'HH3',
+        test_dir,
+        fov['json'].split('.')[0],
+        'SMA',
         panel,
         time_res=500e-6
     )
 
 
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
-def test_median_height_vs_mean_pp(panel):
+def test_median_height_vs_mean_pp(test_dir, fov, panel):
     bin_files.median_height_vs_mean_pp(
-        TEST_DATA_DIR,
-        'fov-1-scan-1',
-        'HH3',
+        test_dir,
+        fov['json'].split('.')[0],
+        'SMA',
         panel,
         500e-6
     )
     pass
 
 
-def test_get_total_counts():
-    bin_files.get_total_counts(TEST_DATA_DIR)
+@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='full_range')
+def test_get_total_counts(test_dir, fov):
+    total_counts = bin_files.get_total_counts(test_dir)
+
+    bf = os.path.join(test_dir, fov['bin'])
+    total_ion_image = _extract_bin.c_extract_bin(
+        bytes(bf, 'utf-8'), np.array([0], np.uint16),
+        np.array([-1], dtype=np.uint16), np.array([False], dtype=np.uint8)
+    )
+    assert(total_counts['fov-1-scan-1'] == np.sum(total_ion_image[0, :, :, :]))
