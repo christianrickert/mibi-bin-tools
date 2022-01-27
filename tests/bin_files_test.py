@@ -224,7 +224,6 @@ def test_median_height_vs_mean_pp(test_dir, fov, panel):
 
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
-@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='full_range')
 def test_get_total_counts(test_dir, fov):
     total_counts = bin_files.get_total_counts(test_dir)
 
