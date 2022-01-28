@@ -1,5 +1,5 @@
 from pytest_cases import (
-    parametrize, parametrize_with_cases, fixture
+    parametrize, parametrize_with_cases, fixture, case
 )
 import pytest
 from typing import Dict, Tuple
@@ -24,22 +24,23 @@ class FovMetadataTestFiles:
             'bin': 'fov-1-scan-1.bin',
         }
 
+    @case(tags='tissue')
     def case_tissue(self):
         return self._generic('tissue')
 
+    @case(tags='moly')
     def case_moly(self):
         return self._generic('moly')
 
 
 class FovMetadataTestPanels:
 
-    def case_global_panel_success(self):
+    @case(tags=['global'])
+    def case_global_panel(self):
         return (-0.3, 0.3)
 
-    def case_global_panel_failure(self):
-        return (-0.3, 0.3), KeyError
-
-    def case_specified_panel_success(self):
+    @case(tags=['specified'])
+    def case_specified_panel(self):
         panel = pd.DataFrame([{
             'Mass': 89,
             'Target': 'SMA',
@@ -48,39 +49,35 @@ class FovMetadataTestPanels:
         }])
         return panel
 
-    def case_specified_panel_failure(self):
+    @case(tags=['specified'])
+    @pytest.mark.xfail(raises=KeyError, strict=True)
+    def case_bad_specified_panel(self):
         bad_panel = pd.DataFrame([{
             'isotope': 89,
             'antibody': 'SMA',
             'start': 88.7,
             'stop': 89,
         }])
-        return bad_panel, KeyError
+        return bad_panel
 
 
 class FovMetadataTestChannels:
 
-    def case_no_channel_filter_success(self):
+    def case_no_channel_filter(self):
         return None
 
-    def case_channel_filter_success(self):
+    def case_channel_filter(self):
         return ['SMA']
-
-    def case_channel_filter_failure(self):
-        return ['HH2']
 
 
 class FovMetadataTestIntensities:
 
     @parametrize(('do_all_intensities',), (True, False))
-    def case_global_intensities_success(self, do_all_intensities):
+    def case_global_intensities(self, do_all_intensities):
         return do_all_intensities
 
-    def case_specified_intensities_success(self):
+    def case_specified_intensities(self):
         return ['SMA']
-
-    def case_format_intensities_failure(self):
-        return ['HH2']
 
 
 @fixture
@@ -127,8 +124,6 @@ def test_write_out(filepath_checks):
         bin_files._write_out(img_data, tmpdir, fov_name, targets)
         filepath_checks(tmpdir, fov_name, targets, True)
 
-    pass
-
 
 def _make_blank_file(folder: str, name: str):
     with open(os.path.join(folder, name), 'w'):
@@ -167,30 +162,41 @@ def test_find_bin_files():
             fov_dict = bin_files._find_bin_files(tmpdir, include_fovs=['fov_fake'])
 
 
-@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, glob='tissue')
-@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='*_success')
-@parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
-@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_fill_fov_metadata_success(test_dir, fov, panel, channels, intensities):
+class FovMetadataCases:
+    @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, has_tag='tissue')
+    @parametrize_with_cases('panel', cases=FovMetadataTestPanels)
+    @parametrize_with_cases('channels', cases=FovMetadataTestChannels)
+    @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities)
+    def case_tissue(self, test_dir, fov, panel, channels, intensities):
+        return test_dir, fov, panel, channels, intensities
+
+    @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, has_tag='moly')
+    @parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='specified')
+    @parametrize_with_cases('channels', cases=FovMetadataTestChannels)
+    @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities)
+    def case_moly(self, test_dir, fov, panel, channels, intensities):
+        return test_dir, fov, panel, channels, intensities
+
+    @pytest.mark.xfail(raises=KeyError, strict=True)
+    @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, has_tag='moly')
+    @parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='global')
+    @parametrize_with_cases('channels', cases=FovMetadataTestChannels)
+    @parametrize_with_cases('intensities', cases=FovMetadataTestIntensities)
+    def case_global_panel_moly(self, test_dir, fov, panel, channels, intensities):
+        return test_dir, fov, panel, channels, intensities
+
+
+@parametrize_with_cases('test_dir, fov, panel, channels, intensities', cases=FovMetadataCases)
+def test_fill_fov_metadata(test_dir, fov, panel, channels, intensities):
     time_res = 0.5
     # panel type can vary (test intensities)
     bin_files._fill_fov_metadata(test_dir, fov, panel, intensities, time_res, channels)
-    pass
 
 
-@parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles, glob='moly')
-@parametrize_with_cases('panel, err', cases=FovMetadataTestPanels, glob='*_failure')
-@parametrize_with_cases('channels', cases=FovMetadataTestChannels, glob='*_success')
-@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
-def test_fill_fov_metadata_failure(test_dir, fov, panel, err, channels, intensities):
-    time_res = 0.5
-    with pytest.raises(err):
-        bin_files._fill_fov_metadata(test_dir, fov, panel, intensities, time_res, channels)
-
-
+# only checking specified panel here since it's easier to validate the file structure
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
-@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
-@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities, glob='*_success')
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='specified')
+@parametrize_with_cases('intensities', cases=FovMetadataTestIntensities)
 def test_extract_bin_files(test_dir, fov, panel, intensities, filepath_checks):
     time_res = 500e-6
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -199,7 +205,7 @@ def test_extract_bin_files(test_dir, fov, panel, intensities, filepath_checks):
 
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
-@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='specified')
 def test_get_width_histogram(test_dir, fov, panel):
     bin_files.get_histograms_per_tof(
         test_dir,
@@ -211,7 +217,7 @@ def test_get_width_histogram(test_dir, fov, panel):
 
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
-@parametrize_with_cases('panel', cases=FovMetadataTestPanels, glob='specified_panel_success')
+@parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='specified')
 def test_median_height_vs_mean_pp(test_dir, fov, panel):
     bin_files.median_height_vs_mean_pp(
         test_dir,
@@ -220,7 +226,6 @@ def test_median_height_vs_mean_pp(test_dir, fov, panel):
         panel,
         500e-6
     )
-    pass
 
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
