@@ -394,3 +394,27 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
     median_height = (np.abs(int_bin - 0.5)).argmin()
 
     return median_height, mean_pp
+
+
+def get_total_counts(data_dir: str, include_fovs: Union[List[str], None] = None):
+    """Retrieves total counts for each field of view
+
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin files as well as accompanying json metadata files
+        include_fovs (List | None):
+            List of fovs to include.  Includes all if None.
+
+    Returns:
+        dict:
+            dictionary of total counts, with fov names as keys
+    """
+
+    fov_files = _find_bin_files(data_dir, include_fovs)
+
+    bin_files = \
+        [(name, os.path.join(data_dir, fov['bin'])) for name, fov in fov_files.items()]
+
+    outs = {name: _extract_bin.c_total_counts(bytes(bf, 'utf-8')) for name, bf in bin_files}
+
+    return outs
