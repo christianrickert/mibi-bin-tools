@@ -203,6 +203,10 @@ def test_extract_bin_files(test_dir, fov, panel, intensities, filepath_checks):
         bin_files.extract_bin_files(test_dir, tmpdir, None, panel, intensities, time_res)
         filepath_checks(tmpdir, fov['json'].split('.')[0], panel['Target'].values, intensities)
 
+    # test xr write out
+    test_xr = bin_files.extract_bin_files(test_dir, None, None, panel, intensities, time_res)
+    assert(list(test_xr.dims) == ['fov', 'type', 'x', 'y', 'channel'])
+
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
 @parametrize_with_cases('panel', cases=FovMetadataTestPanels, has_tag='specified')

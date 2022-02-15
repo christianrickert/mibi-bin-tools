@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 import skimage.io as io
+import xarray as xr
 
 from mibi_bin_tools import io_utils, type_utils, _extract_bin
 
@@ -280,7 +281,7 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
         fov['calc_intensity'] = [False, ] * len(fov['targets'])
 
 
-def extract_bin_files(data_dir: str, out_dir: str,
+def extract_bin_files(data_dir: str, out_dir: Union[str, None],
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
                       intensities: Union[bool, List[str]] = False, time_res: float = 500e-6):
@@ -289,8 +290,8 @@ def extract_bin_files(data_dir: str, out_dir: str,
     Args:
         data_dir (str | PathLike):
             Directory containing bin files as well as accompanying json metadata files
-        out_dir (str | PathLike):
-            Directory to save the tiffs in
+        out_dir (str | PathLike | None):
+            Directory to save the tiffs in.  If None, image data is returned as an ndarray.
         include_fovs (List | None):
             List of fovs to include.  Includes all if None.
         panel (tuple | pd.DataFrame):
@@ -303,6 +304,9 @@ def extract_bin_files(data_dir: str, out_dir: str,
             extracted.
         time_res (float):
             Time resolution for scaling parabolic transformation
+    Returns:
+        None | np.ndarray:
+            image data if no out_dir is provided, otherwise no return
     """
     fov_files = _find_bin_files(data_dir, include_fovs)
 
@@ -312,18 +316,38 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
+    image_data = []
+
     for i, (fov, bf) in enumerate(bin_files):
         img_data = _extract_bin.c_extract_bin(
             bytes(bf, 'utf-8'), fov['lower_tof_range'],
             fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
         )
-        _write_out(
-            img_data,
-            out_dir,
-            fov['bin'][:-4],
-            fov['targets'],
-            type_utils.any_true(intensities)
-        )
+        if out_dir is not None:
+            _write_out(
+                img_data,
+                out_dir,
+                fov['bin'][:-4],
+                fov['targets'],
+                type_utils.any_true(intensities)
+            )
+        else:
+            image_data.append(
+                xr.DataArray(
+                    data=img_data[np.newaxis, :],
+                    coords=[
+                        [fov['bin'].split('.')[0]],
+                        ['pulse', 'intensity', 'area'],
+                        np.arange(img_data.shape[1]),
+                        np.arange(img_data.shape[2]),
+                        fov['targets'],
+                    ],
+                    dims=['fov', 'type', 'x', 'y', 'channel'],
+                )
+            )
+
+    if out_dir is None:
+        return xr.concat(image_data, dim='fov')
 
 
 def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),
