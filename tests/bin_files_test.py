@@ -9,7 +9,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 
-from mibi_bin_tools import bin_files, type_utils, _extract_bin
+from mibi_bin_tools import bin_files, io_utils, type_utils, _extract_bin
 
 THIS_DIR = Path(__file__).parent
 
@@ -206,6 +206,11 @@ def test_extract_bin_files(test_dir, fov, panel, intensities, filepath_checks):
     # test xr write out
     test_xr = bin_files.extract_bin_files(test_dir, None, None, panel, intensities, time_res)
     assert(list(test_xr.dims) == ['fov', 'type', 'x', 'y', 'channel'])
+
+    assert(len(io_utils.list_files(test_dir, substrs=['.bin'])) == len(test_xr.fov))
+    if len(test_xr.fov) > 1:
+        comp = test_xr[0].values == test_xr[1].values
+        assert(not np.all(comp))
 
 
 @parametrize_with_cases('test_dir, fov', cases=FovMetadataTestFiles)
