@@ -5,8 +5,9 @@ import json
 import numpy as np
 import pandas as pd
 import skimage.io as io
+import xarray as xr
 
-from mibi_bin_tools import io_utils, _extract_bin
+from mibi_bin_tools import io_utils, type_utils, _extract_bin
 
 
 def _mass2tof(masses_arr: np.ndarray, mass_offset: float, mass_gain: float,
@@ -59,7 +60,8 @@ def _set_tof_ranges(fov: Dict[str, Any], higher: np.ndarray, lower: np.ndarray,
             ).astype(np.uint16)
 
 
-def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[str]) -> None:
+def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[str],
+               intensities=True) -> None:
     """Parses extracted data and writes out tifs
 
     Args:
@@ -71,6 +73,8 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
             Name of the field of view
         targets (array_like):
             List of target names (i.e channels)
+        intensities (bool):
+            Save intensities
     """
     out_dirs = [
         os.path.join(out_dir, fov_name),
@@ -88,6 +92,8 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
         np.uint32,
     ]
     for i, (out_dir_i, suffix, save_dtype) in enumerate(zip(out_dirs, suffixes, save_dtypes)):
+        if i > 0 and not intensities:
+            continue
         if not os.path.exists(out_dir_i):
             os.makedirs(out_dir_i)
         for j, target in enumerate(targets):
@@ -128,7 +134,14 @@ def _find_bin_files(data_dir: str,
     }
 
     if include_fovs is not None:
-        fov_files = {fov_file: fov_files[fov_file] for fov_file in include_fovs}
+        fov_files = {
+            fov_file: fov_files[fov_file]
+            for fov_file in include_fovs
+            if fov_file in fov_files
+        }
+
+    if not len(fov_files):
+        raise FileNotFoundError(f'No viable bin files were found in {data_dir}...')
 
     return fov_files
 
@@ -199,6 +212,11 @@ def _parse_global_panel(json_metadata: dict, fov: Dict[str, Any], panel: Tuple[f
         None:
             `fov` argument is modified in place
     """
+    if json_metadata['fov'].get('panel', None) is None:
+        raise KeyError(
+            f"'panel' field not found in {fov['json']}. "
+            + "If this is a moly point, you must manually supply a panel..."
+        )
     rows = json_metadata['fov']['panel']['conjugates']
     fov['masses'], fov['targets'] = zip(*[
         (el['mass'], el['target'])
@@ -250,19 +268,20 @@ def _parse_intensities(fov: Dict[str, Any], intensities: Union[bool, List[str]])
             `fov` argument is modified in place
     """
 
+    filtered_intensities = None
     if type(intensities) is list:
-        fov['intensities'] = [target in intensities for target in fov['targets']]
+        filtered_intensities = [target for target in fov['targets'] if target in intensities]
     elif intensities is True:
-        fov['intensities'] = fov['targets']
+        filtered_intensities = fov['targets']
 
     # order the 'calc_intensity' bools
-    if 'intensities' in fov.keys():
-        fov['calc_intensity'] = [target in fov['intensities'] for target in fov['targets']]
+    if filtered_intensities is not None:
+        fov['calc_intensity'] = [target in list(filtered_intensities) for target in fov['targets']]
     else:
         fov['calc_intensity'] = [False, ] * len(fov['targets'])
 
 
-def extract_bin_files(data_dir: str, out_dir: str,
+def extract_bin_files(data_dir: str, out_dir: Union[str, None],
                       include_fovs: Union[List[str], None] = None,
                       panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
                       intensities: Union[bool, List[str]] = False, time_res: float = 500e-6):
@@ -271,8 +290,8 @@ def extract_bin_files(data_dir: str, out_dir: str,
     Args:
         data_dir (str | PathLike):
             Directory containing bin files as well as accompanying json metadata files
-        out_dir (str | PathLike):
-            Directory to save the tiffs in
+        out_dir (str | PathLike | None):
+            Directory to save the tiffs in.  If None, image data is returned as an ndarray.
         include_fovs (List | None):
             List of fovs to include.  Includes all if None.
         panel (tuple | pd.DataFrame):
@@ -285,6 +304,9 @@ def extract_bin_files(data_dir: str, out_dir: str,
             extracted.
         time_res (float):
             Time resolution for scaling parabolic transformation
+    Returns:
+        None | np.ndarray:
+            image data if no out_dir is provided, otherwise no return
     """
     fov_files = _find_bin_files(data_dir, include_fovs)
 
@@ -294,12 +316,43 @@ def extract_bin_files(data_dir: str, out_dir: str,
     bin_files = \
         [(fov, os.path.join(data_dir, fov['bin'])) for fov in fov_files.values()]
 
+    image_data = []
+
     for i, (fov, bf) in enumerate(bin_files):
         img_data = _extract_bin.c_extract_bin(
             bytes(bf, 'utf-8'), fov['lower_tof_range'],
             fov['upper_tof_range'], np.array(fov['calc_intensity'], dtype=np.uint8)
         )
-        _write_out(img_data, out_dir, fov['bin'][:-4], fov['targets'])
+        if out_dir is not None:
+            _write_out(
+                img_data,
+                out_dir,
+                fov['bin'][:-4],
+                fov['targets'],
+                type_utils.any_true(intensities)
+            )
+        else:
+            image_data.append(
+                xr.DataArray(
+                    data=img_data[np.newaxis, :],
+                    coords=[
+                        [fov['bin'].split('.')[0]],
+                        ['pulse', 'intensity', 'area'],
+                        np.arange(img_data.shape[1]),
+                        np.arange(img_data.shape[2]),
+                        fov['targets'],
+                    ],
+                    dims=['fov', 'type', 'x', 'y', 'channel'],
+                )
+            )
+
+    if out_dir is None:
+        image_data = xr.concat(image_data, dim='fov')
+
+        if not intensities:
+            image_data = image_data.loc[:, ['pulse'], :, :, :]
+
+        return image_data
 
 
 def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0.3, 0.0),
@@ -331,9 +384,9 @@ def get_histograms_per_tof(data_dir: str, fov: str, channel: str, mass_range=(-0
     return widths, intensities, pulses
 
 
-def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
-                             panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
-                             time_res: float = 500e-6):
+def get_median_pulse_height(data_dir: str, fov: str, channel: str,
+                            panel: Union[Tuple[float, float], pd.DataFrame] = (-0.3, 0.0),
+                            time_res: float = 500e-6):
     """Retrieves median pulse intensity and mean pulse count for a given channel
 
     Args:
@@ -355,12 +408,6 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
 
     local_bin_file = os.path.join(data_dir, fov['bin'])
 
-    # TODO: fix median calculation in this call
-    _, mean_pp = \
-        _extract_bin.c_pulse_height_vs_positive_pixel(bytes(local_bin_file, 'utf-8'),
-                                                      fov['lower_tof_range'][0],
-                                                      fov['upper_tof_range'][0])
-
     _, intensities, _ = \
         _extract_bin.c_extract_histograms(bytes(local_bin_file, 'utf-8'),
                                           fov['lower_tof_range'][0],
@@ -369,4 +416,28 @@ def median_height_vs_mean_pp(data_dir: str, fov: str, channel: str,
     int_bin = np.cumsum(intensities) / intensities.sum()
     median_height = (np.abs(int_bin - 0.5)).argmin()
 
-    return median_height, mean_pp
+    return median_height
+
+
+def get_total_counts(data_dir: str, include_fovs: Union[List[str], None] = None):
+    """Retrieves total counts for each field of view
+
+    Args:
+        data_dir (str | PathLike):
+            Directory containing bin files as well as accompanying json metadata files
+        include_fovs (List | None):
+            List of fovs to include.  Includes all if None.
+
+    Returns:
+        dict:
+            dictionary of total counts, with fov names as keys
+    """
+
+    fov_files = _find_bin_files(data_dir, include_fovs)
+
+    bin_files = \
+        [(name, os.path.join(data_dir, fov['bin'])) for name, fov in fov_files.items()]
+
+    outs = {name: _extract_bin.c_total_counts(bytes(bf, 'utf-8')) for name, bf in bin_files}
+
+    return outs
