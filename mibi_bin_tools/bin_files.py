@@ -1,13 +1,12 @@
 from typing import Any, Dict, List, Tuple, Union
 import os
 import json
-import tiff
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mibi_bin_tools import io_utils, type_utils, _extract_bin
+from mibi_bin_tools import io_utils, tiff, type_utils, _extract_bin
 
 
 def _mass2tof(masses_arr: np.ndarray, mass_offset: float, mass_gain: float,
