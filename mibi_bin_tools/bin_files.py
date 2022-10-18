@@ -1,10 +1,10 @@
 from typing import Any, Dict, List, Tuple, Union
 import os
 import json
+import tiff
 
 import numpy as np
 import pandas as pd
-import skimage.io as io
 import xarray as xr
 
 from mibi_bin_tools import io_utils, type_utils, _extract_bin
@@ -100,13 +100,8 @@ def _write_out(img_data: np.ndarray, out_dir: str, fov_name: str, targets: List[
             # save all first images regardless of replacing
             # if not replace (i=1), only save intensity images for specified targets
             if i == 0 or (target in list(intensities)):
-                io.imsave(
-                    os.path.join(out_dir_i, f'{target}{suffix}.tiff'),
-                    img_data[i, :, :, j].astype(save_dtype),
-                    plugin='tifffile',
-                    check_contrast=False
-                )
-
+                tiff.write_zlib(os.path.join(out_dir_i, f'{target}{suffix}.tiff'),
+                                img_data[i, :, :, j].astype(save_dtype))
 
 def _find_bin_files(data_dir: str,
                     include_fovs: Union[List[str], None] = None) -> Dict[str, Dict[str, str]]:
