@@ -2,5 +2,5 @@ Cython>=0.29.24,<1
 matplotlib>=3.5.2,<4
 numpy>=1.21.6,<2
 pandas>=1.3.5,<2
-tifffile>=2021.7.2
+tifffile>=2022.10.10,<2023
 xarray>=0.12.3,<1
